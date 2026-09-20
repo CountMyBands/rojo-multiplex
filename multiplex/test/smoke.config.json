@@ -1,0 +1,13 @@
+{
+  "managerPort": 38971,
+  "bindAddress": "127.0.0.1",
+  "proxyPortStart": 38972,
+  "backendPortStart": 48972,
+  "rojoCommand": "rojo",
+  "projects": [
+    {
+      "projectPath": "../../test-projects/empty/default.project.json",
+      "desiredRunning": true
+    }
+  ]
+}

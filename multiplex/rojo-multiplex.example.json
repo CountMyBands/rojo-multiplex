@@ -1,0 +1,8 @@
+{
+  "managerPort": 34871,
+  "bindAddress": "127.0.0.1",
+  "proxyPortStart": 34900,
+  "backendPortStart": 46000,
+  "rojoCommand": "rojo",
+  "projects": []
+}

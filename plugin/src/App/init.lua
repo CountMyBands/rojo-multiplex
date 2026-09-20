@@ -10,6 +10,7 @@ local Packages = Rojo.Packages
 local Roact = require(Packages.Roact)
 local Log = require(Packages.Log)
 local Promise = require(Packages.Promise)
+local Http = require(Packages.Http)
 
 local Assets = require(Plugin.Assets)
 local Version = require(Plugin.Version)
@@ -135,7 +136,13 @@ function App:init()
 		},
 		notifications = {},
 		toolbarIcon = Assets.Images.PluginButton,
+		managedProjects = {},
+		managerStatus = "Looking for Rojo Multiplex...",
 	})
+
+	task.defer(function()
+		self:refreshManagedProjects()
+	end)
 
 	if RunService:IsEdit() then
 		self:checkForUpdates()
@@ -171,6 +178,33 @@ function App:init()
 			self:clearRunningConnectionInfo()
 		end
 	end)
+end
+
+function App:refreshManagedProjects()
+	self:setState({
+		managerStatus = "Refreshing projects...",
+	})
+
+	return Http.get(Config.managerUrl .. "/api/projects")
+		:andThen(Http.Response.json)
+		:andThen(function(body)
+			local projects = if type(body) == "table" and type(body.projects) == "table" then body.projects else {}
+			self:setState({
+				managedProjects = projects,
+				managerStatus = if #projects == 0
+					then "Manager is running, but no projects are configured."
+					else string.format("%d project%s available", #projects, if #projects == 1 then "" else "s"),
+			})
+			return projects
+		end)
+		:catch(function(err)
+			Log.trace("Rojo Multiplex discovery unavailable: {:?}", err)
+			self:setState({
+				managedProjects = {},
+				managerStatus = "Manager offline; manual connect is still available.",
+			})
+			return {}
+		end)
 end
 
 function App:willUnmount()
@@ -600,7 +634,7 @@ function App:useRunningConnectionInfo()
 	self.setPort(port)
 end
 
-function App:startSession()
+function App:startSession(hostOverride: string?, portOverride: string?)
 	local claimedLock, priorOwner = self:claimSyncLock()
 	if not claimedLock then
 		local msg = string.format("Could not sync because user '%s' is already syncing", tostring(priorOwner))
@@ -619,7 +653,12 @@ function App:startSession()
 		return
 	end
 
-	local host, port = self:getHostAndPort()
+	local host, port
+	if hostOverride ~= nil and portOverride ~= nil then
+		host, port = hostOverride, portOverride
+	else
+		host, port = self:getHostAndPort()
+	end
 
 	local baseUrl = if string.find(host, "^https?://")
 		then string.format("%s:%s", host, port)
@@ -853,7 +892,7 @@ function App:endSession()
 end
 
 function App:render()
-	local pluginName = "Rojo " .. Version.display(Config.version)
+	local pluginName = "Rojo Multiplex " .. Version.display(Config.version)
 
 	local function createPageElement(appStatus, additionalProps)
 		additionalProps = additionalProps or {}
@@ -879,8 +918,8 @@ function App:render()
 
 					initDockState = Enum.InitialDockState.Right,
 					overridePreviousState = false,
-					floatingSize = Vector2.new(320, 210),
-					minimumSize = Vector2.new(300, 210),
+					floatingSize = Vector2.new(360, 390),
+					minimumSize = Vector2.new(320, 320),
 
 					zIndexBehavior = Enum.ZIndexBehavior.Sibling,
 
@@ -906,6 +945,18 @@ function App:render()
 
 						onConnect = function()
 							self:startSession()
+						end,
+						managedProjects = self.state.managedProjects,
+						managerStatus = self.state.managerStatus,
+						onRefreshProjects = function()
+							self:refreshManagedProjects()
+						end,
+						onSelectProject = function(project)
+							local host = project.host or "localhost"
+							local port = tostring(project.port)
+							self.setHost(host)
+							self.setPort(port)
+							self:startSession(host, port)
 						end,
 
 						onNavigateSettings = function()
@@ -994,8 +1045,8 @@ function App:render()
 			}),
 
 			toggleAction = e(StudioPluginAction, {
-				name = "RojoConnection",
-				title = "Rojo: Connect/Disconnect",
+				name = "RojoMultiplexConnection",
+				title = "Rojo Multiplex: Connect/Disconnect",
 				description = "Toggles the server for a Rojo sync session",
 				icon = Assets.Images.PluginButton,
 				bindable = true,
@@ -1011,8 +1062,8 @@ function App:render()
 			}),
 
 			connectAction = e(StudioPluginAction, {
-				name = "RojoConnect",
-				title = "Rojo: Connect",
+				name = "RojoMultiplexConnect",
+				title = "Rojo Multiplex: Connect",
 				description = "Connects the server for a Rojo sync session",
 				icon = Assets.Images.PluginButton,
 				bindable = true,
@@ -1024,8 +1075,8 @@ function App:render()
 			}),
 
 			disconnectAction = e(StudioPluginAction, {
-				name = "RojoDisconnect",
-				title = "Rojo: Disconnect",
+				name = "RojoMultiplexDisconnect",
+				title = "Rojo Multiplex: Disconnect",
 				description = "Disconnects the server for a Rojo sync session",
 				icon = Assets.Images.PluginButton,
 				bindable = true,
@@ -1040,7 +1091,7 @@ function App:render()
 				name = pluginName,
 			}, {
 				button = e(StudioToggleButton, {
-					name = "Rojo",
+					name = "Rojo Multiplex",
 					tooltip = "Show or hide the Rojo panel",
 					icon = self.state.toolbarIcon,
 					active = self.state.guiEnabled,

@@ -1,0 +1,49 @@
+{
+  "name": "rojo-multiplex-manager",
+  "private": true,
+  "version": "0.1.4",
+  "description": "A desktop manager and Studio plugin for running multiple Rojo projects at once",
+  "author": "Rojo Multiplex",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "server": "node manager.mjs",
+    "check": "node --check manager.mjs && node --test test/*.test.mjs",
+    "prepare:rojo": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\\prepare-rojo.ps1",
+    "icons": "node scripts/generate-icons.mjs",
+    "build": "electron-builder --win nsis",
+    "pack": "electron-builder --dir"
+  },
+  "devDependencies": {
+    "electron": "^43.3.0",
+    "electron-builder": "^26.15.3",
+    "png-to-ico": "^3.0.2",
+    "sharp": "^0.35.3"
+  },
+  "build": {
+    "appId": "com.rojomultiplex.manager",
+    "productName": "Rojo Multiplex",
+    "asar": true,
+    "directories": { "output": "dist" },
+    "files": [
+      "electron/**/*",
+      "public/**/*",
+      "manager.mjs",
+      "rojo-multiplex.example.json",
+      "package.json"
+    ],
+    "extraResources": [
+      { "from": "../build/RojoMultiplex.rbxm", "to": "RojoMultiplex.rbxm" },
+      { "from": "bin/rojo.exe", "to": "rojo.exe" },
+      { "from": "electron/assets", "to": "assets" }
+    ],
+    "win": { "target": "nsis", "icon": "electron/assets/icon.ico" },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

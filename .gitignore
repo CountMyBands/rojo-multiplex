@@ -24,5 +24,13 @@
 ._*
 .DS_STORE
 
+# Rojo Multiplex generated files
+/multiplex/node_modules/
+/multiplex/dist/
+/multiplex/bin/
+/multiplex/rojo-multiplex.json
+/build/RojoMultiplex.rbxm
+/build/rojo-multiplex-*.png
+
 # JetBrains IDEs
 /.idea/
