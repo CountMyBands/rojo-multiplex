@@ -11,7 +11,7 @@ Rojo Multiplex runs multiple Rojo 7.7 servers at the same time and gives each on
 
 Different Studio windows can connect to different running projects at the same time. The ordinary Rojo plugin may remain installed, but do not run both sync plugins in the same Studio window.
 
-The app listens only on `127.0.0.1`. It assigns and remembers proxy/backend ports internally, starts a bundled Rojo 7.7.0 binary, and forwards both the MessagePack HTTP API and websocket sync stream.
+The app listens only on `127.0.0.1`. It assigns and remembers proxy/backend ports internally, starts a bundled Rojo 7.7.1 binary, and forwards both the MessagePack HTTP API and websocket sync stream.
 
 ## Installation
 
@@ -32,4 +32,4 @@ npm.cmd start
 
 Build the Windows installer with `npm.cmd run build`.
 
-The Studio plugin is based on the official Rojo 7.7.0 plugin (protocol 5) and remains covered by the repository's MPL-2.0 license.
+The Studio plugin is based on the official Rojo 7.7.1 plugin (protocol 5) and remains covered by the repository's MPL-2.0 license.

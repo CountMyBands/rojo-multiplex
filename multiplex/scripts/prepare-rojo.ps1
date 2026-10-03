@@ -27,13 +27,13 @@ if ($RojoRepository) {
     Push-Location $repoRoot
     try {
         & rokit install
-        if ($LASTEXITCODE -ne 0) { throw 'Rokit could not install Rojo 7.7.0.' }
+        if ($LASTEXITCODE -ne 0) { throw 'Rokit could not install Rojo 7.7.1.' }
     } finally {
         Pop-Location
     }
 
-    $source = Join-Path $env:USERPROFILE '.rokit\tool-storage\rojo-rbx\rojo\7.7.0\rojo.exe'
-    $sourceLabel = 'Rojo 7.7.0 from Rokit'
+    $source = Join-Path $env:USERPROFILE '.rokit\tool-storage\rojo-rbx\rojo\7.7.1\rojo.exe'
+    $sourceLabel = 'Rojo 7.7.1 from Rokit'
 }
 
 if (-not (Test-Path -LiteralPath $source)) {
