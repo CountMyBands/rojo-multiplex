@@ -13,11 +13,13 @@ Different Studio windows can connect to different running projects at the same t
 
 The app listens only on `127.0.0.1`. It assigns and remembers proxy/backend ports internally, starts a bundled Rojo 7.7.1 binary, and forwards both the MessagePack HTTP API and websocket sync stream.
 
+The bundled binary is built from this repository's own server source, not copied from a stock Rojo release. It reports itself as Rojo 7.7.1 and speaks the same protocol, but also watches the targets of Windows file symlinks, directory symlinks, and junctions, so edits made through a link's target sync to Studio without restarting the project.
+
 ## Installation
 
-Run `dist/Rojo Multiplex Setup 0.1.0.exe`, then choose **Install Studio Plugin** inside the desktop app. Restart Studio after installing or upgrading the plugin.
+Run `dist/Rojo Multiplex Setup 0.1.6.exe`, then choose **Install Studio Plugin** inside the desktop app. Restart Studio after installing or upgrading the plugin.
 
-The project list is stored under the app's Windows user-data directory, normally `%APPDATA%\Rojo Multiplex\rojo-multiplex.json`.
+The project list is stored under the app's Windows user-data directory, normally `%APPDATA%\rojo-multiplex-manager\rojo-multiplex.json`.
 
 ## Development
 
@@ -29,6 +31,8 @@ npm.cmd run icons
 npm.cmd run check
 npm.cmd start
 ```
+
+`prepare:rojo` runs `cargo build --release --locked` in the repository root and copies `target\release\rojo.exe` into `bin\`, so it needs the Rust toolchain. To bundle a different Rojo 7.7 checkout instead, set `ROJO_MULTIPLEX_ROJO_REPOSITORY` to its folder before running it.
 
 Build the Windows installer with `npm.cmd run build`.
 
