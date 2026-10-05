@@ -2,6 +2,10 @@
 
 Rojo server changes are listed in the repository's root `CHANGELOG.md`.
 
+## 0.1.7
+
+* The bundled server no longer logs a warning for every queued file-watcher event whose file and folder were already deleted, such as when a package manager replaces a nested dependency folder.
+
 ## 0.1.6
 
 * The bundled `rojo.exe` is now built from this repository's server source instead of being copied from the stock Rojo 7.7.1 release. It still reports Rojo 7.7.1 and uses the same protocol as the bundled plugin.
