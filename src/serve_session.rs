@@ -472,6 +472,202 @@ mod test {
         );
     }
 
+    /// Finds an instance by its names from the root, for trees where the same
+    /// file is reachable through more than one alias.
+    #[cfg(windows)]
+    fn source_at(session: &ServeSession, names: &[&str]) -> Option<String> {
+        use rbx_dom_weak::{types::Variant, ustr};
+
+        let tree = session.tree();
+        let mut instance = tree.get_instance(tree.get_root_id())?;
+        for name in names {
+            instance = instance
+                .children()
+                .iter()
+                .filter_map(|&child| tree.get_instance(child))
+                .find(|child| child.name() == *name)?;
+        }
+        match instance.properties().get(&ustr("Source")) {
+            Some(Variant::String(source)) => Some(source.clone()),
+            _ => None,
+        }
+    }
+
+    /// Mirrors a game repo that shares code through `Shared` and a sibling
+    /// `Framework` repo: directory links that chain Game -> Shared ->
+    /// Framework, real directories of file links, and links created, moved
+    /// and repointed by the sharing scripts while the session is running.
+    #[test]
+    #[cfg(windows)]
+    fn applies_windows_link_creation_and_chains_without_restarting() {
+        use std::os::windows::fs::{symlink_dir, symlink_file};
+
+        let temp = tempfile::tempdir().unwrap();
+        let framework = temp.path().join("Framework");
+        let shared = temp.path().join("Shared");
+        let project = temp.path().join("Game");
+        let source = project.join("src");
+
+        for dir in [
+            framework.join("Anim"),
+            framework.join("Audio"),
+            shared.join("Settings"),
+            source.join("Settings"),
+        ] {
+            std::fs::create_dir_all(dir).unwrap();
+        }
+        std::fs::write(framework.join("Anim/Controller.lua"), "return \"anim\"").unwrap();
+        std::fs::write(framework.join("Audio/Controller.lua"), "return \"audio\"").unwrap();
+        std::fs::write(shared.join("Settings/A.lua"), "return \"a\"").unwrap();
+        symlink_dir(framework.join("Anim"), shared.join("Anim"))
+            .expect("this Windows regression test requires permission to create symlinks");
+        symlink_dir(shared.join("Anim"), source.join("Anim")).unwrap();
+        symlink_file(shared.join("Settings/A.lua"), source.join("Settings/A.lua")).unwrap();
+        symlink_dir(shared.join("Settings"), source.join("Linked")).unwrap();
+        std::fs::write(
+            project.join("default.project.json"),
+            r#"{ "name": "test", "tree": { "$path": "src" } }"#,
+        )
+        .unwrap();
+
+        let session = ServeSession::new(Vfs::new(StdBackend::new().unwrap()), &project).unwrap();
+        assert_eq!(
+            source_at(&session, &["Anim", "Controller"]).as_deref(),
+            Some("return \"anim\"")
+        );
+        assert_eq!(
+            source_at(&session, &["Settings", "A"]).as_deref(),
+            Some("return \"a\"")
+        );
+
+        // (a) Edits behind a two-hop chain.
+        std::fs::write(framework.join("Anim/Controller.lua"), "return \"edited\"").unwrap();
+        wait_for_tree(&session, "apply an edit behind a link chain", |session| {
+            source_at(session, &["Anim", "Controller"]).as_deref() == Some("return \"edited\"")
+        });
+
+        // (b) A new file inside a chained directory link's target.
+        std::fs::write(framework.join("Anim/Extra.lua"), "return \"extra\"").unwrap();
+        wait_for_tree(&session, "add a file behind a link chain", |session| {
+            source_at(session, &["Anim", "Extra"]).as_deref() == Some("return \"extra\"")
+        });
+
+        // (c) New links: a file link in a real directory, then a directory
+        // link to a folder nothing was watching yet.
+        std::fs::write(shared.join("Settings/B.lua"), "return \"b\"").unwrap();
+        symlink_file(shared.join("Settings/B.lua"), source.join("Settings/B.lua")).unwrap();
+        wait_for_tree(&session, "add a new file link", |session| {
+            source_at(session, &["Settings", "B"]).as_deref() == Some("return \"b\"")
+        });
+        std::fs::write(shared.join("Settings/B.lua"), "return \"b edited\"").unwrap();
+        wait_for_tree(
+            &session,
+            "apply an edit to a new link's target",
+            |session| {
+                source_at(session, &["Settings", "B"]).as_deref() == Some("return \"b edited\"")
+            },
+        );
+
+        symlink_dir(framework.join("Audio"), source.join("Audio")).unwrap();
+        wait_for_tree(&session, "add a new directory link", |session| {
+            source_at(session, &["Audio", "Controller"]).as_deref() == Some("return \"audio\"")
+        });
+        std::fs::write(framework.join("Audio/Added.lua"), "return \"added\"").unwrap();
+        wait_for_tree(&session, "add a file to a new directory link", |session| {
+            source_at(session, &["Audio", "Added"]).as_deref() == Some("return \"added\"")
+        });
+
+        // (c) What Share-Module.ps1 does: move a real file into Shared, then
+        // link it back into place.
+        std::fs::write(source.join("Settings/Moved.lua"), "return \"moved\"").unwrap();
+        wait_for_tree(&session, "add a real file before sharing it", |session| {
+            source_at(session, &["Settings", "Moved"]).is_some()
+        });
+        std::fs::rename(
+            source.join("Settings/Moved.lua"),
+            shared.join("Settings/Moved.lua"),
+        )
+        .unwrap();
+        symlink_file(
+            shared.join("Settings/Moved.lua"),
+            source.join("Settings/Moved.lua"),
+        )
+        .unwrap();
+        std::fs::write(shared.join("Settings/Moved.lua"), "return \"shared\"").unwrap();
+        wait_for_tree(&session, "follow a file moved into Shared", |session| {
+            source_at(session, &["Settings", "Moved"]).as_deref() == Some("return \"shared\"")
+                && source_at(session, &["Linked", "Moved"]).as_deref() == Some("return \"shared\"")
+        });
+
+        // (d) Removing a target reached through both a file link and a
+        // directory link removes both instances, and recreating it restores
+        // both.
+        std::fs::remove_file(shared.join("Settings/Moved.lua")).unwrap();
+        wait_for_tree(&session, "remove a doubly linked target", |session| {
+            source_at(session, &["Settings", "Moved"]).is_none()
+                && source_at(session, &["Linked", "Moved"]).is_none()
+        });
+        std::fs::write(shared.join("Settings/Moved.lua"), "return \"restored\"").unwrap();
+        wait_for_tree(&session, "restore a doubly linked target", |session| {
+            source_at(session, &["Settings", "Moved"]).as_deref() == Some("return \"restored\"")
+                && source_at(session, &["Linked", "Moved"]).as_deref()
+                    == Some("return \"restored\"")
+        });
+
+        // (d) Deleting and renaming links themselves.
+        std::fs::remove_file(source.join("Settings/B.lua")).unwrap();
+        wait_for_tree(&session, "remove a file link", |session| {
+            source_at(session, &["Settings", "B"]).is_none()
+                && source_at(session, &["Linked", "B"]).is_some()
+        });
+        std::fs::rename(
+            source.join("Settings/A.lua"),
+            source.join("Settings/Renamed.lua"),
+        )
+        .unwrap();
+        wait_for_tree(&session, "rename a file link", |session| {
+            source_at(session, &["Settings", "A"]).is_none()
+                && source_at(session, &["Settings", "Renamed"]).as_deref() == Some("return \"a\"")
+        });
+        std::fs::rename(
+            framework.join("Anim/Extra.lua"),
+            framework.join("Anim/Moved.lua"),
+        )
+        .unwrap();
+        wait_for_tree(&session, "rename a file behind a link chain", |session| {
+            source_at(session, &["Anim", "Extra"]).is_none()
+                && source_at(session, &["Anim", "Moved"]).as_deref() == Some("return \"extra\"")
+        });
+
+        // (d) Repointing the middle link of the chain, which is outside the
+        // project, moves where the alias in the project resolves.
+        std::fs::remove_dir(shared.join("Anim")).unwrap();
+        wait_for_tree(&session, "drop a dangling link chain", |session| {
+            source_at(session, &["Anim", "Controller"]).is_none()
+        });
+        symlink_dir(framework.join("Audio"), shared.join("Anim")).unwrap();
+        wait_for_tree(&session, "repoint the middle of a link chain", |session| {
+            source_at(session, &["Anim", "Controller"]).as_deref() == Some("return \"audio\"")
+                && source_at(session, &["Anim", "Moved"]).is_none()
+        });
+        std::fs::write(framework.join("Audio/Controller.lua"), "return \"both\"").unwrap();
+        wait_for_tree(
+            &session,
+            "apply an edit behind a repointed chain",
+            |session| {
+                source_at(session, &["Anim", "Controller"]).as_deref() == Some("return \"both\"")
+                    && source_at(session, &["Audio", "Controller"]).as_deref()
+                        == Some("return \"both\"")
+            },
+        );
+
+        std::fs::remove_dir(source.join("Audio")).unwrap();
+        wait_for_tree(&session, "remove a directory link", |session| {
+            source_at(session, &["Audio", "Controller"]).is_none()
+                && source_at(session, &["Anim", "Controller"]).as_deref() == Some("return \"both\"")
+        });
+    }
+
     #[test]
     #[cfg(windows)]
     fn applies_windows_junction_updates_without_restarting() {

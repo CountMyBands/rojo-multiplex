@@ -2,6 +2,7 @@
 
 ## Unreleased Changes
 * Fixed native Windows symlink watches missing physical-target changes and becoming stale when links were recreated or repointed. [#278]
+* Fixed Windows symlink watches ignoring removal, recreation, or repointing of intermediate links in a chain, and dropping a symlink target's own create/remove event when it also had to rescan the link. [#278]
 
 [#278]: https://github.com/rojo-rbx/rojo/issues/278
 

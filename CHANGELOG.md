@@ -32,6 +32,7 @@ Making a new release? Simply add the new header with the version and date undern
 ## Unreleased
 
 * Fixed `rojo serve` not syncing native Windows file and directory symlinks when edits were made through their physical targets, including symlinks that were deleted, recreated, or repointed. ([#278])
+* Fixed `rojo serve` on Windows missing changes to a link in the middle of a symlink chain (a project link pointing at another link), and missing deletions of a symlink's target when the same file was also reachable through a linked directory. ([#278])
 
 [#278]: https://github.com/rojo-rbx/rojo/issues/278
 

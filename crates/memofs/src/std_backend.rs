@@ -42,6 +42,8 @@ struct WindowsWatchRegistration {
     is_symlink: bool,
     /// Whether `symlink_metadata` can currently see the link itself.
     is_present_symlink: bool,
+    /// The other links this path resolves through, see [`link_chain`].
+    chain: Vec<PathBuf>,
 }
 
 #[cfg(windows)]
@@ -50,8 +52,9 @@ struct WindowsWatchState {
     /// Logical requests are retained even when another request's native watch
     /// covers them, because symlink targets can fall outside that ancestor.
     registrations: HashMap<PathBuf, WindowsWatchRegistration>,
-    /// The minimal set actually registered with `notify`.
-    native_watches: HashSet<PathBuf>,
+    /// The minimal set actually registered with `notify`, and whether each
+    /// one is recursive.
+    native_watches: HashMap<PathBuf, bool>,
 }
 
 #[cfg(windows)]
@@ -62,6 +65,9 @@ struct WindowsSymlinkIndex {
     logical_paths: HashSet<PathBuf>,
     /// Fans physical target lifecycle events back out to every logical alias.
     physical_to_logical: HashMap<PathBuf, HashSet<PathBuf>>,
+    /// Fans changes to an intermediate link of a chain back out to every
+    /// logical alias that resolves through it.
+    chain_to_logical: HashMap<PathBuf, HashSet<PathBuf>>,
 }
 
 #[cfg(windows)]
@@ -214,6 +220,7 @@ impl StdBackend {
                 physical_path,
                 is_symlink,
                 is_present_symlink: is_symlink,
+                chain: link_chain(&logical_path),
             },
         );
 
@@ -244,6 +251,8 @@ impl StdBackend {
             Err(err) => return Err(err),
         };
 
+        let chain = link_chain(&logical_path);
+
         match self.watches.registrations.get_mut(&logical_path) {
             Some(registration) => {
                 if let Some(physical_path) = &physical_path {
@@ -254,6 +263,7 @@ impl StdBackend {
                 registration.physical_path = physical_path;
                 registration.is_symlink |= currently_symlink;
                 registration.is_present_symlink = currently_symlink;
+                registration.chain = chain;
             }
             None if currently_symlink => {
                 self.watches.registrations.insert(
@@ -263,6 +273,7 @@ impl StdBackend {
                         physical_path,
                         is_symlink: true,
                         is_present_symlink: true,
+                        chain,
                     },
                 );
             }
@@ -278,6 +289,7 @@ impl StdBackend {
         let mut index = self.symlink_index.lock().unwrap();
         index.logical_paths.clear();
         index.physical_to_logical.clear();
+        index.chain_to_logical.clear();
 
         for (logical_path, registration) in &self.watches.registrations {
             if !registration.is_symlink {
@@ -285,6 +297,13 @@ impl StdBackend {
             }
 
             index.logical_paths.insert(logical_path.clone());
+            for link in &registration.chain {
+                index
+                    .chain_to_logical
+                    .entry(link.clone())
+                    .or_default()
+                    .insert(logical_path.clone());
+            }
             if let Some(physical_path) = registration
                 .physical_path
                 .as_ref()
@@ -322,28 +341,70 @@ impl StdBackend {
             },
         ));
 
-        let additions: Vec<_> = desired
-            .difference(&self.watches.native_watches)
-            .cloned()
+        // Intermediate links of a chain only need their own directory entry
+        // watched, so a recursive watch on their parent would be wasteful: it
+        // may be a large directory unrelated to the project.
+        let shallow: HashSet<PathBuf> = self
+            .watches
+            .registrations
+            .values()
+            .filter(|registration| registration.is_symlink)
+            .flat_map(|registration| &registration.chain)
+            .filter_map(|link| link.parent())
+            .filter(|parent| !desired.iter().any(|ancestor| parent.starts_with(ancestor)))
+            .map(Path::to_path_buf)
             .collect();
-        for path in additions {
-            self.watcher
-                .watch(&path, RecursiveMode::Recursive)
-                .map_err(io::Error::other)?;
-            self.watches.native_watches.insert(path);
-        }
 
-        let removals: Vec<_> = self
+        let desired: HashMap<PathBuf, bool> = desired
+            .into_iter()
+            .map(|path| (path, true))
+            .chain(shallow.into_iter().map(|path| (path, false)))
+            .collect();
+
+        // Adding before removing avoids a window where neither the old nor the
+        // new watch covers a path. A path that only changes mode is re-added
+        // after its old watch is removed.
+        self.add_native_watches(&desired)?;
+
+        let stale: Vec<_> = self
             .watches
             .native_watches
-            .difference(&desired)
-            .cloned()
+            .iter()
+            .filter(|(path, recursive)| desired.get(*path) != Some(*recursive))
+            .map(|(path, _)| path.clone())
             .collect();
-        for path in removals {
+        for path in stale {
             // A deleted or replaced symlink target may already have caused
             // notify to discard the native watch.
             let _ = self.watcher.unwatch(&path);
             self.watches.native_watches.remove(&path);
+        }
+
+        self.add_native_watches(&desired)
+    }
+
+    #[cfg(windows)]
+    fn add_native_watches(&mut self, desired: &HashMap<PathBuf, bool>) -> io::Result<()> {
+        for (path, &recursive) in desired {
+            if self.watches.native_watches.contains_key(path) {
+                continue;
+            }
+
+            if recursive {
+                self.watcher
+                    .watch(path, RecursiveMode::Recursive)
+                    .map_err(io::Error::other)?;
+            } else if self
+                .watcher
+                .watch(path, RecursiveMode::NonRecursive)
+                .is_err()
+            {
+                // The directory holding a missing link of a chain can be
+                // missing too. Nothing can be observed there until it exists,
+                // and the next resync retries it.
+                continue;
+            }
+            self.watches.native_watches.insert(path.clone(), recursive);
         }
 
         Ok(())
@@ -374,38 +435,130 @@ fn send_windows_event(
     // corresponding instance, a later target creation has no tree key to find.
     // Rescanning the logical parent preserves that route for both halves of an
     // atomic replacement and for alias deletion/repointing.
-    let rescans = {
+    let (rescans, forward) = {
         let index = symlink_index.lock().unwrap();
-        if normalized
-            .as_ref()
-            .is_some_and(|path| index.logical_paths.contains(path))
-            || currently_symlink
-        {
-            vec![path.clone()]
-        } else if !matches!(kind, WindowsEventKind::Write) {
+        let lookup = |map: &HashMap<PathBuf, HashSet<PathBuf>>| {
             normalized
                 .as_ref()
-                .and_then(|path| index.physical_to_logical.get(path))
-                .map(|paths| paths.iter().cloned().collect())
+                .and_then(|path| map.get(path))
+                .cloned()
                 .unwrap_or_default()
-        } else {
-            Vec::new()
+        };
+        let chain_dependents = lookup(&index.chain_to_logical);
+        let mut rescans = HashSet::new();
+
+        // A recreated or repointed middle link of a chain is a symlink too,
+        // but it is not itself part of the project, so it must not become an
+        // alias of its own; its dependents are rescanned instead.
+        let is_alias = normalized
+            .as_ref()
+            .is_some_and(|path| index.logical_paths.contains(path))
+            || (currently_symlink && chain_dependents.is_empty());
+        if is_alias {
+            rescans.insert(path.clone());
         }
+        rescans.extend(chain_dependents);
+
+        let mut forward = rescans.is_empty();
+        if !is_alias && !matches!(kind, WindowsEventKind::Write) {
+            let aliases = lookup(&index.physical_to_logical);
+            // The target can also be in the tree through a directory alias
+            // or its own real location. Those instances are keyed by the
+            // physical path, so they still need the original event.
+            forward |= !aliases.is_empty();
+            rescans.extend(aliases);
+        }
+
+        (rescans, forward)
     };
 
-    if rescans.is_empty() {
+    if forward {
         let event = match kind {
             WindowsEventKind::Create => VfsEvent::Create(path),
             WindowsEventKind::Write => VfsEvent::Write(path),
             WindowsEventKind::Remove => VfsEvent::Remove(path),
         };
-        tx.send(event)
-    } else {
-        for path in rescans {
-            tx.send(VfsEvent::Rescan(path))?;
-        }
-        Ok(())
+        tx.send(event)?;
     }
+    for path in rescans {
+        tx.send(VfsEvent::Rescan(path))?;
+    }
+    Ok(())
+}
+
+/// Returns every other symlink or junction that resolving `path` passes
+/// through, in resolution order. If the chain dangles, the first missing hop is
+/// included as well.
+///
+/// `canonicalize` only reports where a chain ends. Removing, recreating or
+/// repointing a link in the middle of the chain moves that end, but changes
+/// nothing under the alias or its old target, so each hop must be watched too.
+#[cfg(windows)]
+fn link_chain(path: &Path) -> Vec<PathBuf> {
+    use std::path::Component;
+
+    // Windows refuses to resolve more reparse points than this in one path,
+    // which also bounds link cycles.
+    const MAX_LINKS: usize = 63;
+
+    let mut chain = Vec::new();
+    let mut resolved = PathBuf::new();
+    let mut pending: Vec<PathBuf> = path
+        .components()
+        .rev()
+        .map(|component| PathBuf::from(component.as_os_str()))
+        .collect();
+
+    while let Some(part) = pending.pop() {
+        match part.components().next() {
+            Some(Component::Normal(_)) => {}
+            Some(Component::ParentDir) => {
+                resolved.pop();
+                continue;
+            }
+            Some(Component::CurDir) | None => continue,
+            Some(Component::Prefix(_) | Component::RootDir) => {
+                resolved.push(&part);
+                continue;
+            }
+        }
+
+        resolved.push(&part);
+        let hop = dunce::simplified(&resolved).to_path_buf();
+        match std::fs::symlink_metadata(&resolved) {
+            Ok(metadata) if metadata.file_type().is_symlink() => {
+                let Ok(target) = std::fs::read_link(&resolved) else {
+                    break;
+                };
+                if hop != path {
+                    chain.push(hop);
+                }
+                if chain.len() >= MAX_LINKS {
+                    break;
+                }
+
+                resolved.pop();
+                if target.is_absolute() {
+                    resolved = PathBuf::new();
+                }
+                pending.extend(
+                    target
+                        .components()
+                        .rev()
+                        .map(|component| PathBuf::from(component.as_os_str())),
+                );
+            }
+            Ok(_) => {}
+            Err(_) => {
+                if hop != path {
+                    chain.push(hop);
+                }
+                break;
+            }
+        }
+    }
+
+    chain
 }
 
 #[cfg(windows)]
@@ -853,6 +1006,132 @@ mod tests {
         wait_for_event(&vfs, &events, |event| {
             matches!(event, VfsEvent::Create(_) | VfsEvent::Write(_))
                 && same_path(event_path(event), &created)
+        });
+    }
+
+    #[test]
+    fn link_chain_lists_intermediate_hops_and_the_first_missing_one() {
+        let temp = tempfile::tempdir().unwrap();
+        let alias = temp.path().join("alias");
+        let middle = temp.path().join("middle");
+        let target = temp.path().join("target");
+
+        std::fs::create_dir(&target).unwrap();
+        std::fs::write(target.join("child.lua"), "child").unwrap();
+        create_junction(&target, &middle);
+        create_junction(&middle, &alias);
+        let alias = super::logical_path(&alias).unwrap();
+        let middle = super::logical_path(&middle).unwrap();
+        let target = super::logical_path(&target).unwrap();
+
+        // The alias itself is left out; its own lifecycle is tracked directly.
+        assert_eq!(super::link_chain(&alias), vec![middle.clone()]);
+        assert_eq!(
+            super::link_chain(&alias.join("child.lua")),
+            vec![alias.clone(), middle.clone()]
+        );
+        assert_eq!(
+            super::link_chain(&alias.join("missing.lua")),
+            vec![alias.clone(), middle.clone(), target.join("missing.lua")]
+        );
+
+        std::fs::remove_dir_all(&target).unwrap();
+        assert_eq!(super::link_chain(&alias), vec![middle, target]);
+    }
+
+    #[test]
+    fn chained_junction_reports_middle_link_repointing() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source");
+        let target_a = temp.path().join("target-a");
+        let target_b = temp.path().join("target-b");
+        // Mirrors Game -> Shared -> Framework: the alias in the project points
+        // at another link, which is the one that gets repointed.
+        let middle = temp.path().join("middle");
+        let alias = source.join("alias");
+
+        std::fs::create_dir(&source).unwrap();
+        std::fs::create_dir(&target_a).unwrap();
+        std::fs::create_dir(&target_b).unwrap();
+        create_junction(&target_a, &middle);
+        create_junction(&middle, &alias);
+
+        let vfs = Vfs::new(StdBackend::new().unwrap());
+        let events = vfs.event_receiver();
+        vfs.read_dir(&source).unwrap();
+        vfs.read_dir(&alias).unwrap();
+
+        std::fs::remove_dir(&middle).unwrap();
+        wait_for_event(
+            &vfs,
+            &events,
+            |event| matches!(event, VfsEvent::Rescan(path) if same_path(path, &alias)),
+        );
+        drain_events(&vfs, &events);
+
+        create_junction(&target_b, &middle);
+        wait_for_event(
+            &vfs,
+            &events,
+            |event| matches!(event, VfsEvent::Rescan(path) if same_path(path, &alias)),
+        );
+        drain_events(&vfs, &events);
+
+        let new_target_file = target_b.join("new-target.lua");
+        std::fs::write(&new_target_file, "new target").unwrap();
+        wait_for_event(&vfs, &events, |event| {
+            same_path(event_path(event), &new_target_file)
+        });
+        drain_events(&vfs, &events);
+
+        let stale_target_file = target_a.join("stale-target.lua");
+        std::fs::write(&stale_target_file, "stale target").unwrap();
+        assert_no_event_for_path(&vfs, &events, &stale_target_file);
+    }
+
+    #[test]
+    fn file_symlink_target_lifecycle_reports_physical_event_and_alias_rescan() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("source");
+        let target_dir = temp.path().join("target");
+        let target = target_dir.join("target.lua");
+        let alias = source.join("alias.lua");
+
+        std::fs::create_dir(&source).unwrap();
+        std::fs::create_dir(&target_dir).unwrap();
+        std::fs::write(&target, "before").unwrap();
+        symlink_file(&target, &alias)
+            .expect("this Windows regression test requires permission to create symlinks");
+
+        let vfs = Vfs::new(StdBackend::new().unwrap());
+        let events = vfs.event_receiver();
+        vfs.read_dir(&source).unwrap();
+        vfs.read_to_string(&alias).unwrap();
+
+        // The target's own Remove/Create must survive alongside the alias
+        // rescan: a directory alias of `target_dir` reaches the same file, and
+        // only the physical path finds that instance in the tree.
+        let wait_for_physical_and_rescan = |is_physical: fn(&VfsEvent) -> bool| {
+            let mut saw_physical = false;
+            let mut saw_rescan = false;
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !(saw_physical && saw_rescan) {
+                let event = events
+                    .recv_deadline(deadline)
+                    .expect("timed out waiting for target lifecycle events");
+                vfs.commit_event(&event).unwrap();
+                saw_physical |= is_physical(&event) && same_path(event_path(&event), &target);
+                saw_rescan |= matches!(&event, VfsEvent::Rescan(path) if same_path(path, &alias));
+            }
+            drain_events(&vfs, &events);
+        };
+
+        std::fs::remove_file(&target).unwrap();
+        wait_for_physical_and_rescan(|event| matches!(event, VfsEvent::Remove(_)));
+
+        std::fs::write(&target, "after").unwrap();
+        wait_for_physical_and_rescan(|event| {
+            matches!(event, VfsEvent::Create(_) | VfsEvent::Write(_))
         });
     }
 
