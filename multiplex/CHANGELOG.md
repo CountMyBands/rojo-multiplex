@@ -2,6 +2,11 @@
 
 Rojo server changes are listed in the repository's root `CHANGELOG.md`.
 
+## 0.1.8
+
+* The bundled server now follows Windows symlink chains (a link in the project pointing at another link, such as Game -> Shared -> Framework) when a link in the middle is removed, recreated, or repointed, without restarting the project.
+* Deleting or recreating a shared file that is reachable through both a file link and a linked folder now updates both copies in Studio.
+
 ## 0.1.7
 
 * The bundled server no longer logs a warning for every queued file-watcher event whose file and folder were already deleted, such as when a package manager replaces a nested dependency folder.

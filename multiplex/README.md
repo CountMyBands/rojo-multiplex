@@ -17,7 +17,7 @@ The bundled binary is built from this repository's own server source, not copied
 
 ## Installation
 
-Run `dist/Rojo Multiplex Setup 0.1.7.exe`, then choose **Install Studio Plugin** inside the desktop app. Restart Studio after installing or upgrading the plugin.
+Run `dist/Rojo Multiplex Setup 0.1.8.exe`, then choose **Install Studio Plugin** inside the desktop app. Restart Studio after installing or upgrading the plugin.
 
 The project list is stored under the app's Windows user-data directory, normally `%APPDATA%\rojo-multiplex-manager\rojo-multiplex.json`.
 
