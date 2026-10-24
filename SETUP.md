@@ -1,6 +1,6 @@
 # Setting up Rojo Multiplex (guide for AI agents)
 
-This guide is for an AI coding agent that is setting up Rojo Multiplex on a user's Windows PC. It covers building the app from source, installing the app and the Studio plugin, adding the user's projects, and checking the result. Humans can follow it too. The shorter guide written for people is [multiplex/README.md](multiplex/README.md).
+This guide is for an AI coding agent that is setting up Rojo Multiplex on a user's Windows PC. It covers installing the app and the Studio plugin from a release or from source, adding the user's projects, and checking the result. Humans can follow it too. The shorter guide written for people is [multiplex/README.md](multiplex/README.md).
 
 Run every command in **PowerShell**, from the folder named in each step. Use `npm.cmd`, not `npm`: PowerShell's default execution policy blocks the `npm.ps1` shim.
 
@@ -14,8 +14,44 @@ Run every command in **PowerShell**, from the folder named in each step. Use `np
 Before you change anything, ask the user:
 
 1. **Which projects to add.** You need the full path of each `.project.json` file.
-2. **Whether to install missing tools.** Step 1 may need Git, Node.js, Rust, and the Visual Studio C++ Build Tools. Get permission before installing any of them.
-3. **Which Rojo version their projects need.** The default, bundled Rojo 7.7.1, is right for almost everyone. Only follow [Using a different Rojo version](#using-a-different-rojo-version) if they need an older Rojo, such as one pinned in a `rokit.toml`, `aftman.toml`, or `foreman.toml`.
+2. **Which Rojo version their projects need.** The default, bundled Rojo 7.7.1, is right for almost everyone. Only follow [Using a different Rojo version](#using-a-different-rojo-version) if they need an older Rojo, such as one pinned in a `rokit.toml`, `aftman.toml`, or `foreman.toml`.
+3. **Only if you build from source:** whether you may install missing tools. Step 1 may need Git, Node.js, Rust, and the Visual Studio C++ Build Tools. Get permission before installing any of them.
+
+## Choose how to install
+
+- **From the latest release (recommended).** Needs no build tools and takes about a minute. Follow [Install from a release](#install-from-a-release), then continue at Step 5.
+- **From source.** Follow Steps 1 to 8. Do this only if the user wants to change the code, wants a build of unreleased changes, or the release download fails.
+
+## Install from a release
+
+Close Rojo Multiplex first if it is running, as described at the start of [Step 4](#step-4-install-the-app). Then download the latest release:
+
+```powershell
+# Without this, Windows PowerShell 5.1 downloads large files very slowly.
+$ProgressPreference = "SilentlyContinue"
+$release = Invoke-RestMethod https://api.github.com/repos/CountMyBands/rojo-multiplex/releases/latest
+$dir = Join-Path $env:TEMP "rojo-multiplex-$($release.tag_name)"
+New-Item -ItemType Directory -Force $dir | Out-Null
+foreach ($asset in $release.assets) {
+    Invoke-WebRequest $asset.browser_download_url -OutFile (Join-Path $dir $asset.name) -UseBasicParsing
+}
+```
+
+Install the app silently and copy the Studio plugin into place:
+
+```powershell
+$installer = Get-ChildItem "$dir\Rojo-Multiplex-Setup-*.exe" | Select-Object -First 1
+Start-Process -FilePath $installer.FullName -ArgumentList "/S" -Wait
+Test-Path "$env:LOCALAPPDATA\Programs\Rojo Multiplex\Rojo Multiplex.exe"   # should be True
+
+$plugins = Join-Path $env:LOCALAPPDATA "Roblox\Plugins"
+New-Item -ItemType Directory -Force $plugins | Out-Null
+Copy-Item "$dir\RojoMultiplex.rbxm" (Join-Path $plugins "RojoMultiplex.rbxm") -Force
+```
+
+The release installer isn't code-signed. Installing it from your shell this way doesn't show a SmartScreen prompt. If the user runs it by double-clicking instead, SmartScreen may warn them; they choose **More info**, then **Run anyway**.
+
+Tell the user to restart Roblox Studio, then continue at [Step 5](#step-5-start-the-app). Skip Step 6, because the plugin is already installed.
 
 ## Step 1: Check the tools
 
@@ -190,6 +226,10 @@ Only do this if the user needs a Rojo older than 7.7. The app can run any Rojo v
 To go back to the bundled Rojo, remove the variable with `[Environment]::SetEnvironmentVariable("ROJO_MULTIPLEX_ROJO", $null, "User")`, clear it in your shell with `Remove-Item Env:ROJO_MULTIPLEX_ROJO`, and restart the app.
 
 ## Updating an existing setup
+
+**Installed from a release:** repeat [Install from a release](#install-from-a-release). It always fetches the latest release. Then do Step 5.
+
+**Built from source:**
 
 ```powershell
 cd rojo-multiplex

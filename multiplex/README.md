@@ -24,7 +24,7 @@ To have an AI coding agent set this up for you, point it at [SETUP.md](../SETUP.
 
 ### Option 1: Install a release
 
-1. Download `Rojo Multiplex Setup <version>.exe` from this repository's Releases page and run it.
+1. Download `Rojo-Multiplex-Setup-<version>.exe` from the [latest release](https://github.com/CountMyBands/rojo-multiplex/releases/latest) and run it. The installer isn't code-signed, so Windows SmartScreen may warn you. Choose **More info**, then **Run anyway**.
 2. Open **Rojo Multiplex** and choose **Install Studio Plugin**.
 3. Restart Roblox Studio.
 
