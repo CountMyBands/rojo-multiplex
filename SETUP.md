@@ -57,7 +57,7 @@ cd rojo-multiplex\multiplex
 From `rojo-multiplex\multiplex`:
 
 ```powershell
-npm.cmd install
+npm.cmd ci
 npm.cmd run prepare:rojo
 bin\rojo.exe build ..\plugin.project.json --output ..\build\RojoMultiplex.rbxm
 npm.cmd run check
@@ -68,7 +68,7 @@ Each command must succeed before you run the next one:
 
 | Command | What it does | Expect |
 | --- | --- | --- |
-| `npm.cmd install` | Installs Electron and the build tools. | A few minutes the first time. npm 11 may warn that it skipped the install script of `electron-winstaller`. That is harmless: the app builds an NSIS installer, which doesn't use it. Don't approve it. |
+| `npm.cmd ci` | Installs the exact Electron and build-tool versions in `package-lock.json`, without changing the lockfile. | A few minutes the first time. npm 11 may warn that it skipped the install script of `electron-winstaller`. That is harmless: the app builds an NSIS installer, which doesn't use it. Don't approve it. |
 | `npm.cmd run prepare:rojo` | Runs `cargo build --release --locked` in the repository root and copies `rojo.exe` into `multiplex\bin\`. | 5 to 15 minutes the first time. Give it a long timeout. Ends with `Prepared ... (Rojo 7.7.x)`. |
 | `bin\rojo.exe build ...` | Builds the Studio plugin into `..\build\RojoMultiplex.rbxm`. | A few seconds. |
 | `npm.cmd run check` | Runs the app's tests. | `fail 0`. |

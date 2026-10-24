@@ -40,7 +40,7 @@ cd rojo-multiplex\multiplex
 # If you already cloned without --recursive:
 # git submodule update --init --recursive
 
-npm.cmd install
+npm.cmd ci
 
 # Build this repository's Rojo server into bin\rojo.exe (needs Rust).
 npm.cmd run prepare:rojo
