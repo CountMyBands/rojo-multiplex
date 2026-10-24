@@ -288,7 +288,9 @@ function startRojo(project, config) {
   project.lastOutput = null;
   project.lastCrashDetail = null;
   logProject(project, "gateway", `Starting Rojo on backend port ${project.backendPort}: ${rojoCommand} ${args.join(" ")}`);
-  const child = spawn(rojoCommand, args, { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+  // Run from the project's folder so toolchain-manager shims (Rokit, Aftman,
+  // Foreman) resolve the Rojo version that project pins.
+  const child = spawn(rojoCommand, args, { cwd: project.folderPath, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
   project.child = child;
   const buffers = { stdout: "", stderr: "" };
   const processLine = (source, line) => {

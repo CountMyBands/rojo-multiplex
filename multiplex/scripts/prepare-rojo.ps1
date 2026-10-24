@@ -7,9 +7,16 @@ $repoRoot = Split-Path (Split-Path $PSScriptRoot -Parent) -Parent
 $destinationFolder = Join-Path (Split-Path $PSScriptRoot -Parent) 'bin'
 $destination = Join-Path $destinationFolder 'rojo.exe'
 
-# The bundled plugin speaks Rojo 7.7's protocol, so the bundled server must stay
-# on the 7.7 line no matter which checkout it is built from.
-$expectedVersion = '^Rojo 7\.7\.\d+'
+# The bundled plugin speaks the protocol of the Rojo release it is based on, so
+# the bundled server must be on the same major.minor line no matter which
+# checkout it is built from. Reading it from the plugin keeps this check correct
+# after the repository is updated to a newer Rojo release.
+$pluginVersion = (Get-Content -LiteralPath (Join-Path $repoRoot 'plugin\Version.txt') -TotalCount 1).Trim()
+if ($pluginVersion -notmatch '^(\d+)\.(\d+)\.') {
+    throw "Could not read the plugin's Rojo version from plugin\Version.txt: '$pluginVersion'"
+}
+$expectedLine = "$($Matches[1]).$($Matches[2])"
+$expectedVersion = "^Rojo $([regex]::Escape($expectedLine))\.\d+"
 
 # Build from this repository by default rather than copying a stock release:
 # its server carries fixes that stock Rojo lacks (such as Windows symlink
@@ -47,7 +54,7 @@ if (-not (Test-Path -LiteralPath $source)) {
 
 $version = (& $source --version | Out-String).Trim()
 if ($version -notmatch $expectedVersion) {
-    throw "Expected a Rojo 7.7 binary for the bundled 7.7.1 plugin, but $source reports '$version'."
+    throw "Expected a Rojo $expectedLine binary for the bundled $pluginVersion plugin, but $source reports '$version'."
 }
 
 New-Item -ItemType Directory -Force -Path $destinationFolder | Out-Null

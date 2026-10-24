@@ -46,7 +46,9 @@ async function ensureManager() {
   if (managerModule) return;
   const managerPath = path.join(app.getAppPath(), "manager.mjs");
   const bundledRojo = app.isPackaged ? path.join(process.resourcesPath, "rojo.exe") : path.join(app.getAppPath(), "bin", "rojo.exe");
-  if (fs.existsSync(bundledRojo)) process.env.ROJO_MULTIPLEX_ROJO = bundledRojo;
+  // A ROJO_MULTIPLEX_ROJO the user set themselves wins, so the app can serve
+  // projects with a Rojo version other than the bundled one.
+  if (!process.env.ROJO_MULTIPLEX_ROJO && fs.existsSync(bundledRojo)) process.env.ROJO_MULTIPLEX_ROJO = bundledRojo;
   process.env.ROJO_MULTIPLEX_EMBEDDED = "1";
   managerModule = await import(pathToFileURL(managerPath).href);
   await managerModule.start({ configPath });
@@ -87,6 +89,19 @@ function createWindow() {
   void mainWindow.loadURL(`${managerOrigin}/`);
 }
 
+// A dev run's process.execPath is node_modules\electron\dist\electron.exe, whose
+// version info says "Electron". Registering that at login made Task Manager and
+// Startup apps list the app as "Electron", so only the installed exe registers.
+function launchAtLoginItem() {
+  if (!app.isPackaged) return { label: "Launch at Login (installed app only)", enabled: false };
+  return {
+    label: "Launch at Login",
+    type: "checkbox",
+    checked: app.getLoginItemSettings({ path: process.execPath, args: ["--hidden"] }).openAtLogin,
+    click: (item) => app.setLoginItemSettings({ openAtLogin: item.checked, path: process.execPath, args: ["--hidden"] }),
+  };
+}
+
 function createTray() {
   tray = new Tray(appIcon().resize({ width: 20, height: 20, quality: "best" }));
   tray.setToolTip("Rojo Multiplex");
@@ -94,7 +109,7 @@ function createTray() {
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: "Open Rojo Multiplex", click: showWindow },
     { type: "separator" },
-    { label: "Launch at Login", type: "checkbox", checked: app.getLoginItemSettings().openAtLogin, click: (item) => app.setLoginItemSettings({ openAtLogin: item.checked, path: process.execPath, args: app.isPackaged ? ["--hidden"] : [app.getAppPath(), "--hidden"] }) },
+    launchAtLoginItem(),
     { type: "separator" },
     { label: "Quit", click: () => void quitApp() },
   ]));

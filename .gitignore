@@ -31,6 +31,7 @@
 /multiplex/rojo-multiplex.json
 /build/RojoMultiplex.rbxm
 /build/rojo-multiplex-*.png
+/multiplex/build/
 
 # JetBrains IDEs
 /.idea/
