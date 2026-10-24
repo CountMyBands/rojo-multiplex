@@ -2,13 +2,13 @@
 
 Rojo server changes are listed in the repository's root `CHANGELOG.md`.
 
-## Unreleased
+## 0.1.9
 
 * **Launch at Login** is now disabled when running from source (`npm start`). Turning it on there registered the dev `electron.exe`, so Task Manager and Startup apps listed Rojo Multiplex as "Electron". The README now explains how to find and remove such entries.
 * Projects can now be served by any Rojo version. Set `ROJO_MULTIPLEX_ROJO` to a Rojo command or path and the app uses it instead of the bundled server. Rojo now runs from each project's folder, so a `rojo` shim from Rokit, Aftman, or Foreman picks the version that project pins. Connect to servers other than 7.7 with the official Rojo plugin of that version.
 * Each project row now shows its proxy address, such as `localhost:34900`, for connecting with the official Rojo plugin.
 * `prepare:rojo` now reads the expected Rojo version from `plugin/Version.txt` instead of a hardcoded 7.7, so it keeps working after the repository moves to a newer Rojo release.
-* The README now has full setup instructions.
+* The README now has full setup instructions, and `SETUP.md` has step-by-step instructions an AI agent can follow to set Rojo Multiplex up for a user.
 * **Launch at Login** now shows as checked when it is on. It used to look unchecked because the saved `--hidden` argument did not match the check.
 
 ## 0.1.8

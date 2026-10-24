@@ -3,6 +3,7 @@
 This is a fork of [Rojo](https://github.com/rojo-rbx/rojo) that adds **Rojo Multiplex**, a Windows desktop app and Studio plugin for running several Rojo projects at once. Add your `.project.json` files to the app, start the ones you need, and connect each Roblox Studio window to a different project with one click.
 
 - **Setup and usage:** [multiplex/README.md](multiplex/README.md)
+- **Setting up with an AI agent:** point your agent at [SETUP.md](SETUP.md). It has step-by-step instructions for building, installing, and adding your projects for you.
 - **Changes:** [multiplex/CHANGELOG.md](multiplex/CHANGELOG.md)
 - **Works with any Rojo version:** the app ships with Rojo 7.7.1, which includes a fix for syncing through Windows symlinks and junctions. You can point it at any other Rojo version and connect with that version's official plugin. See [Rojo versions](multiplex/README.md#rojo-versions).
 

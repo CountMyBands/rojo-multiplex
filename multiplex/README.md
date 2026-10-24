@@ -20,6 +20,8 @@ To build from source you also need:
 
 ## Setup
 
+To have an AI coding agent set this up for you, point it at [SETUP.md](../SETUP.md). It has agent-friendly steps for building, installing, and adding your projects.
+
 ### Option 1: Install a release
 
 1. Download `Rojo Multiplex Setup <version>.exe` from this repository's Releases page and run it.
