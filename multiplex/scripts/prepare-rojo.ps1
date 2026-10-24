@@ -33,12 +33,30 @@ if (-not (Test-Path -LiteralPath (Join-Path $RojoRepository 'Cargo.toml') -PathT
     throw "Rojo repository does not contain Cargo.toml: $RojoRepository"
 }
 
+# rustc embeds the absolute paths of dependency sources (under the Cargo home)
+# in panic messages, which would publish the builder's Windows username inside
+# the installer. Remap them to neutral prefixes. Passing them through --config
+# rather than RUSTFLAGS keeps the repository's own rustflags, because Cargo
+# joins rustflags from every matching target table but RUSTFLAGS replaces them.
+# When several prefixes match, rustc applies the last one, so the Cargo home
+# (usually inside the profile) goes last.
+$userProfile = [System.IO.Path]::GetFullPath($env:USERPROFILE)
+$cargoHome = if ($env:CARGO_HOME) { [System.IO.Path]::GetFullPath($env:CARGO_HOME) } else { Join-Path $userProfile '.cargo' }
+# The flags go in a temporary config file because a path can contain quotes,
+# which don't survive being passed to cargo on the command line. JSON string
+# escaping is also valid TOML basic-string escaping.
+$remapFlags = @("--remap-path-prefix=$userProfile=~", "--remap-path-prefix=$cargoHome=cargo-home") |
+    ForEach-Object { ConvertTo-Json -InputObject $_ -Compress }
+$remapConfig = Join-Path ([System.IO.Path]::GetTempPath()) "rojo-multiplex-remap-$PID.toml"
+[System.IO.File]::WriteAllText($remapConfig, "[target.'cfg(all())']`nrustflags = [$($remapFlags -join ', ')]`n", (New-Object System.Text.UTF8Encoding $false))
+
 Push-Location $RojoRepository
 try {
-    & cargo build --release --locked
+    & cargo build --release --locked --config $remapConfig
     if ($LASTEXITCODE -ne 0) { throw "The Rojo release build failed in $RojoRepository." }
 } finally {
     Pop-Location
+    Remove-Item -LiteralPath $remapConfig -ErrorAction SilentlyContinue
 }
 
 $targetDirectory = if ($env:CARGO_TARGET_DIR) {

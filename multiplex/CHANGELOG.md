@@ -8,6 +8,7 @@ Rojo server changes are listed in the repository's root `CHANGELOG.md`.
 * Projects can now be served by any Rojo version. Set `ROJO_MULTIPLEX_ROJO` to a Rojo command or path and the app uses it instead of the bundled server. Rojo now runs from each project's folder, so a `rojo` shim from Rokit, Aftman, or Foreman picks the version that project pins. Connect to servers other than 7.7 with the official Rojo plugin of that version.
 * Each project row now shows its proxy address, such as `localhost:34900`, for connecting with the official Rojo plugin.
 * `prepare:rojo` now reads the expected Rojo version from `plugin/Version.txt` instead of a hardcoded 7.7, so it keeps working after the repository moves to a newer Rojo release.
+* The bundled `rojo.exe` no longer contains the path of the builder's Windows user folder. `prepare:rojo` now remaps dependency source paths when it builds Rojo.
 * The README now has full setup instructions, and `SETUP.md` has step-by-step instructions an AI agent can follow to set Rojo Multiplex up for a user.
 * **Launch at Login** now shows as checked when it is on. It used to look unchecked because the saved `--hidden` argument did not match the check.
 
