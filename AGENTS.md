@@ -41,7 +41,7 @@ If you have modified Rojo's server, you may need to update test snapshots. You m
 - Leave comments that explain _why_ you are doing something, not just _what_ you are doing. Do not do this if the code is self-obvious.
 - Prefer to not add new dependencies.
 - Do not modify anything under `plugin/rbx_dom_lua`. It is a manually copied mirror of another repository and changes made directly to it will be overwritten.
-- Do not modify `README.md`, `CONTRIBUTING.md`, `AGENTS.md`, or `CLAUDE.md` under any circumstance. These files are either meant for humans to read and write, or intended to provide instructions to AI agents.
+- Do not modify `CONTRIBUTING.md`, `AGENTS.md`, or `CLAUDE.md` under any circumstance. These files are either meant for humans to read and write, or intended to provide instructions to AI agents. `README.md` may be edited.
 
 ## Linting and Formatting
 
